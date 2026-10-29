@@ -465,3 +465,85 @@ body {
   justify-content: flex-end;
   gap: 6px;
 }
+
+/* ================= MOBILE ================= */
+@media (max-width: 700px) {
+  body { overflow: hidden; }
+
+  /* Icons: smaller grid, 3 columns, bottom-left corner */
+  .xp-icon-grid {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    grid-template-columns: repeat(auto-fill, 74px);
+    gap: 6px;
+  }
+  .xp-icon { width: 74px; font-size: 11px; padding: 4px 2px; }
+  .xp-icon .glyph { margin-bottom: 2px; transform: scale(0.9); }
+
+  /* Windows go nearly fullscreen; drag disabled on touch */
+  .xp-window {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100vw !important;
+    height: calc(100vh - 36px) !important;
+    height: calc(100dvh - 36px) !important;
+    min-width: 0;
+    border-radius: 0;
+  }
+  .xp-window-title { cursor: default; font-size: 14px; padding: 6px 8px; }
+  .xp-ctl { width: 28px; height: 24px; font-size: 14px; }
+  .xp-menubar span { padding: 4px 8px; font-size: 13px; }
+  .xp-toolbar button { padding: 6px 10px; font-size: 12px; }
+  .xp-window-body { padding: 10px; font-size: 14px; }
+
+  /* Folder views: bigger tap targets */
+  .view-icons { grid-template-columns: repeat(auto-fill, 84px); gap: 10px; }
+  .view-columns {
+    grid-template-columns: 1.5fr 1fr 1.4fr;
+    font-size: 11px;
+  }
+  /* Hide URL column on phones — too narrow */
+  .view-columns .head:nth-child(4),
+  .view-columns .row-link .cell:nth-child(4) {
+    display: none;
+  }
+
+  /* Taskbar */
+  .xp-taskbar { height: 36px; font-size: 13px; }
+  .xp-start { padding: 0 14px 0 10px; font-size: 15px; }
+  .xp-task-btn { max-width: 110px; font-size: 11px; padding: 2px 6px; }
+  .xp-tray { padding: 0 8px; font-size: 11px; gap: 4px; }
+  .xp-tray span:nth-child(1), .xp-tray span:nth-child(2) { display: none; }
+
+  /* Start menu nearly full width */
+  .xp-startmenu { width: 90vw; max-width: 320px; }
+  .xp-startmenu .item { padding: 10px 10px; font-size: 14px; }
+
+  /* Login screen stacks */
+  .xp-login-bg { min-height: 100dvh; }
+  .xp-login-wrap { grid-template-columns: 1fr; gap: 16px; padding: 10px; }
+  .xp-login-hint { text-align: center; }
+  .xp-login-hint h2 { font-size: 20px; }
+  .xp-login-hint p { font-size: 13px; }
+  .xp-login-topbar { padding: 10px 16px; font-size: 14px; }
+  .xp-login-topbar .brand { font-size: 18px; }
+  .xp-login-bottom { font-size: 11px; padding: 8px 12px; }
+  .xp-user-card { justify-content: center; }
+  .xp-form-panel { max-width: 360px; margin: 0 auto; }
+  .xp-input { padding: 8px 8px; font-size: 15px; }
+  .xp-btn { padding: 8px 16px; font-size: 14px; }
+
+  /* Admin table: hide dates on phones to fit */
+  .xp-window-body [style*="grid-template-columns"] {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 420px) {
+  .xp-icon-grid { grid-template-columns: repeat(auto-fill, 68px); }
+  .xp-icon { width: 68px; font-size: 10.5px; }
+  .xp-start { font-size: 14px; padding: 0 10px 0 8px; }
+  .xp-task-btn { max-width: 90px; }
+}

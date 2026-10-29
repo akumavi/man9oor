@@ -33,7 +33,7 @@ const SOCIALS = [
   {
     name: "YouTube",
     handle: "@uncakuma",
-    url: "https://youtube.com/@uncakuma",
+    url: "https://www.youtube.com/@uncakuma",
     type: "Shortcut",
     color: "#ff0000",
     icon: "▶",
@@ -138,6 +138,7 @@ export default function Desktop({
   const [folderView, setFolderView] = useState<ViewMode>("icons");
   const [startOpen, setStartOpen] = useState(false);
   const [clock, setClock] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
   const zRef = useRef(10);
 
   useEffect(() => {
@@ -148,6 +149,14 @@ export default function Desktop({
     update();
     const t = setInterval(update, 15000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 700px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
   }, []);
 
   function windowTitle(kind: WindowKind) {
@@ -305,12 +314,26 @@ export default function Desktop({
           <div
             key={w.id}
             className="xp-window"
-            style={{ left: w.x, top: w.y, width: w.w, height: w.h, zIndex: w.z }}
+            style={
+              isMobile
+                ? {
+                    position: "fixed",
+                    left: 0,
+                    top: 0,
+                    width: "100vw",
+                    height: "calc(100dvh - 36px)",
+                    borderRadius: 0,
+                    zIndex: w.z,
+                  }
+                : { left: w.x, top: w.y, width: w.w, height: w.h, zIndex: w.z }
+            }
             onMouseDown={() => bringToFront(w.id)}
           >
             <div
               className="xp-window-title"
-              onMouseDown={(e) => startDrag(w.id, e)}
+              onMouseDown={(e) => {
+                if (!isMobile) startDrag(w.id, e);
+              }}
               onDoubleClick={() => toggleMinimize(w.id)}
             >
               <div className="title-text">
