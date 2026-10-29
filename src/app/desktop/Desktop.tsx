@@ -109,6 +109,52 @@ function AccountGlyph() {
   );
 }
 
+function DesktopIcon({
+  label,
+  selected,
+  onSelect,
+  onOpen,
+  glyph,
+  isMobile,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+  onOpen: () => void;
+  glyph: React.ReactNode;
+  isMobile: boolean;
+}) {
+  // On touch devices, a single tap opens (double-tap is awkward on mobile).
+  // On desktop, single click selects, double click opens.
+  return (
+    <button
+      type="button"
+      role="listitem"
+      aria-label={`Open ${label}`}
+      className={`xp-icon ${selected ? "selected" : ""}`}
+      onClick={isMobile ? onOpen : onSelect}
+      onDoubleClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      style={{
+        background: "transparent",
+        border: 0,
+        cursor: "pointer",
+        font: "inherit",
+      }}
+    >
+      <div className="glyph" aria-hidden="true">
+        {glyph}
+      </div>
+      <div className="label">{label}</div>
+    </button>
+  );
+}
+
 function SocialGlyph({ color, icon }: { color: string; icon: string }) {
   return (
     <div
@@ -167,19 +213,41 @@ export default function Desktop({
   }, []);
 
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 700px)");
+    // Treat as "mobile layout" if screen is narrow OR primary input is touch
+    // (so iPads and touch laptops get centered windows + no drag too).
+    const narrow = window.matchMedia("(max-width: 820px)");
+    const touch = window.matchMedia("(pointer: coarse)");
     const update = () => {
-      setIsMobile(mq.matches);
+      setIsMobile(narrow.matches || touch.matches);
       setVp({ w: window.innerWidth, h: window.innerHeight });
     };
     update();
-    mq.addEventListener("change", update);
+    narrow.addEventListener("change", update);
+    touch.addEventListener("change", update);
     window.addEventListener("resize", update);
     return () => {
-      mq.removeEventListener("change", update);
+      narrow.removeEventListener("change", update);
+      touch.removeEventListener("change", update);
       window.removeEventListener("resize", update);
     };
   }, []);
+
+  // Keyboard: Escape closes the top window, or the Start menu if open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (startOpen) {
+        setStartOpen(false);
+        return;
+      }
+      const visible = wins.filter((w) => !w.minimized);
+      if (visible.length === 0) return;
+      const top = visible.reduce((a, b) => (a.z > b.z ? a : b));
+      setWins((cur) => cur.filter((w) => w.id !== top.id));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [wins, startOpen]);
 
   function windowTitle(kind: WindowKind) {
     if (kind === "me") return "About Me.txt — Notepad";
@@ -298,60 +366,50 @@ export default function Desktop({
         }
       }}
     >
-      <div className="xp-icon-grid">
-        <div
-          className={`xp-icon ${selected === "me" ? "selected" : ""}`}
-          onClick={() => setSelected("me")}
-          onDoubleClick={() => openWindow("me")}
-        >
-          <div className="glyph">
-            <FileGlyph />
-          </div>
-          <div className="label">About Me.txt</div>
-        </div>
-        <div
-          className={`xp-icon ${selected === "social" ? "selected" : ""}`}
-          onClick={() => setSelected("social")}
-          onDoubleClick={() => openWindow("social")}
-        >
-          <div className="glyph">
-            <FolderGlyph />
-          </div>
-          <div className="label">Social Media</div>
-        </div>
-        <div
-          className={`xp-icon ${selected === "meeting" ? "selected" : ""}`}
-          onClick={() => setSelected("meeting")}
-          onDoubleClick={() => openWindow("meeting")}
-        >
-          <div className="glyph">
-            <CalendarGlyph />
-          </div>
-          <div className="label">Book a Meeting</div>
-        </div>
+      <div className="xp-icon-grid" role="list">
+        <DesktopIcon
+          label="About Me.txt"
+          selected={selected === "me"}
+          onSelect={() => setSelected("me")}
+          onOpen={() => openWindow("me")}
+          glyph={<FileGlyph />}
+          isMobile={isMobile}
+        />
+        <DesktopIcon
+          label="Social Media"
+          selected={selected === "social"}
+          onSelect={() => setSelected("social")}
+          onOpen={() => openWindow("social")}
+          glyph={<FolderGlyph />}
+          isMobile={isMobile}
+        />
+        <DesktopIcon
+          label="Book a Meeting"
+          selected={selected === "meeting"}
+          onSelect={() => setSelected("meeting")}
+          onOpen={() => openWindow("meeting")}
+          glyph={<CalendarGlyph />}
+          isMobile={isMobile}
+        />
         {signedIn && (
-          <div
-            className={`xp-icon ${selected === "account" ? "selected" : ""}`}
-            onClick={() => setSelected("account")}
-            onDoubleClick={() => openWindow("account")}
-          >
-            <div className="glyph">
-              <AccountGlyph />
-            </div>
-            <div className="label">My Account</div>
-          </div>
+          <DesktopIcon
+            label="My Account"
+            selected={selected === "account"}
+            onSelect={() => setSelected("account")}
+            onOpen={() => openWindow("account")}
+            glyph={<AccountGlyph />}
+            isMobile={isMobile}
+          />
         )}
         {isAdmin && (
-          <div
-            className={`xp-icon ${selected === "admin" ? "selected" : ""}`}
-            onClick={() => setSelected("admin")}
-            onDoubleClick={() => openWindow("admin")}
-          >
-            <div className="glyph">
-              <AdminGlyph />
-            </div>
-            <div className="label">Control Panel</div>
-          </div>
+          <DesktopIcon
+            label="Control Panel"
+            selected={selected === "admin"}
+            onSelect={() => setSelected("admin")}
+            onOpen={() => openWindow("admin")}
+            glyph={<AdminGlyph />}
+            isMobile={isMobile}
+          />
         )}
       </div>
 

@@ -21,11 +21,37 @@ html, body {
 }
 
 body {
-  font-family: "Tahoma", "Trebuchet MS", "Verdana", sans-serif;
+  /* Tahoma on Windows/Mac; next/font-loaded Noto Sans on Linux/Android.
+     --font-noto variable is set by src/app/layout.tsx. */
+  font-family:
+    "Tahoma",
+    "Trebuchet MS",
+    "Verdana",
+    var(--font-noto, "Segoe UI"),
+    system-ui,
+    sans-serif;
   color: #000;
   background: #000;
   -webkit-font-smoothing: none;
   overflow: hidden;
+  /* Keep tap targets responsive; no 300ms tap delay on touch. */
+  touch-action: manipulation;
+}
+
+/* Hide default focus outline on mouse; keep a strong one for keyboard users. */
+:focus:not(:focus-visible) { outline: none; }
+:focus-visible {
+  outline: 2px solid #ffb13b;
+  outline-offset: 1px;
+}
+
+/* Respect "reduce motion" OS setting. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 /* ================= LOGIN SCREEN ================= */
@@ -511,6 +537,13 @@ body {
   /* Start menu nearly full width */
   .xp-startmenu { width: 90vw; max-width: 320px; }
   .xp-startmenu .item { padding: 10px 10px; font-size: 14px; }
+
+  /* iOS Safari zooms in on tap unless input font-size >= 16px.
+     Bump form controls to 16px on narrow screens only; style stays visually close. */
+  .xp-input,
+  .xp-input:is(input, textarea, select) {
+    font-size: 16px;
+  }
 
   /* Login screen stacks */
   .xp-login-bg { min-height: 100dvh; }
