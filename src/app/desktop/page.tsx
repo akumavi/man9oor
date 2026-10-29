@@ -19,5 +19,14 @@ export default async function DesktopPage() {
 
   const avatar = ((user.user_metadata?.avatar as AvatarKey | undefined) ?? "letter") as AvatarKey;
 
-  return <Desktop displayName={displayName} email={user.email ?? ""} avatar={avatar} />;
+  const isAdmin = (user.email ?? "").toLowerCase() === "mansoor7zx@gmail.com";
+
+  return (
+    <Desktop
+      displayName={displayName}
+      email={user.email ?? ""}
+      avatar={avatar}
+      isAdmin={isAdmin}
+    />
+  );
 }

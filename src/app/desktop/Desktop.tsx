@@ -6,7 +6,7 @@ import { logoutAction } from "../login/actions";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AVATAR_KEYS, AVATAR_LABELS, type AvatarKey } from "@/components/Avatar";
 
-type WindowKind = "me" | "social" | "account";
+type WindowKind = "me" | "social" | "account" | "admin";
 type ViewMode = "icons" | "list" | "columns";
 
 interface OpenWindow {
@@ -70,6 +70,17 @@ function FolderGlyph() {
   );
 }
 
+function AdminGlyph() {
+  return (
+    <svg width="48" height="48" viewBox="0 0 48 48">
+      <path d="M24 4 L40 10 L40 24 Q40 38 24 44 Q8 38 8 24 L8 10 Z" fill="#2a7fdc" stroke="#0a3a6c" />
+      <path d="M24 4 L40 10 L40 16 L8 16 L8 10 Z" fill="#4a9fff" stroke="#0a3a6c" />
+      <circle cx="24" cy="24" r="5" fill="#ffd54f" stroke="#8a6b1f" />
+      <rect x="22" y="27" width="4" height="7" fill="#ffd54f" stroke="#8a6b1f" />
+    </svg>
+  );
+}
+
 function AccountGlyph() {
   return (
     <svg width="48" height="48" viewBox="0 0 48 48">
@@ -110,10 +121,12 @@ export default function Desktop({
   displayName: initialName,
   email,
   avatar: initialAvatar,
+  isAdmin,
 }: {
   displayName: string;
   email: string;
   avatar: AvatarKey;
+  isAdmin: boolean;
 }) {
   const router = useRouter();
   const [displayName, setDisplayName] = useState(initialName);
@@ -138,6 +151,7 @@ export default function Desktop({
   function windowTitle(kind: WindowKind) {
     if (kind === "me") return "Me.txt — Notepad";
     if (kind === "social") return "Social Media";
+    if (kind === "admin") return "Control Panel — Users";
     return "My Account";
   }
 
@@ -156,6 +170,7 @@ export default function Desktop({
       me: { w: 460, h: 360 },
       social: { w: 560, h: 400 },
       account: { w: 520, h: 480 },
+      admin: { w: 720, h: 480 },
     };
     setWins((cur) => [
       ...cur,
@@ -266,6 +281,18 @@ export default function Desktop({
           </div>
           <div className="label">My Account</div>
         </div>
+        {isAdmin && (
+          <div
+            className={`xp-icon ${selected === "admin" ? "selected" : ""}`}
+            onClick={() => setSelected("admin")}
+            onDoubleClick={() => openWindow("admin")}
+          >
+            <div className="glyph">
+              <AdminGlyph />
+            </div>
+            <div className="label">Control Panel</div>
+          </div>
+        )}
       </div>
 
       {wins
@@ -283,7 +310,14 @@ export default function Desktop({
               onDoubleClick={() => toggleMinimize(w.id)}
             >
               <div className="title-text">
-                {w.kind === "me" ? "📝" : w.kind === "social" ? "📁" : "👤"} <span>{w.title}</span>
+                {w.kind === "me"
+                  ? "📝"
+                  : w.kind === "social"
+                    ? "📁"
+                    : w.kind === "admin"
+                      ? "🛡"
+                      : "👤"}{" "}
+                <span>{w.title}</span>
               </div>
               <div className="xp-window-controls">
                 <div className="xp-ctl min" onClick={() => toggleMinimize(w.id)}>
@@ -334,6 +368,7 @@ export default function Desktop({
             <div className={`xp-window-body ${w.kind === "social" ? "folder" : ""}`}>
               {w.kind === "me" && <MeContent displayName={displayName} />}
               {w.kind === "social" && <SocialContent view={folderView} />}
+              {w.kind === "admin" && <AdminContent currentEmail={email} />}
               {w.kind === "account" && (
                 <AccountContent
                   displayName={displayName}
@@ -372,7 +407,14 @@ export default function Desktop({
                 else bringToFront(w.id);
               }}
             >
-              {w.kind === "me" ? "📝" : w.kind === "social" ? "📁" : "👤"} <span>{w.title}</span>
+              {w.kind === "me"
+                ? "📝"
+                : w.kind === "social"
+                  ? "📁"
+                  : w.kind === "admin"
+                    ? "🛡"
+                    : "👤"}{" "}
+              <span>{w.title}</span>
             </div>
           ))}
         </div>
@@ -417,6 +459,17 @@ export default function Desktop({
             >
               👤 My Account
             </div>
+            {isAdmin && (
+              <div
+                className="item"
+                onClick={() => {
+                  openWindow("admin");
+                  setStartOpen(false);
+                }}
+              >
+                🛡 Control Panel
+              </div>
+            )}
           </div>
           <div className="footer">
             <form action={logoutAction}>
@@ -500,6 +553,192 @@ function SocialContent({ view }: { view: ViewMode }) {
         </a>
       ))}
     </div>
+  );
+}
+
+type AdminUser = {
+  id: string;
+  email: string;
+  display_name: string;
+  avatar: AvatarKey;
+  created_at: string;
+  last_sign_in_at: string | null;
+  email_confirmed_at: string | null;
+};
+
+function AdminContent({ currentEmail }: { currentEmail: string }) {
+  const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("list_users");
+    setLoading(false);
+    if (error) {
+      setErr(error.message + " — did you run the admin SQL in Supabase?");
+      return;
+    }
+    setUsers((data ?? []) as AdminUser[]);
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function deleteUser(u: AdminUser) {
+    if (u.email === currentEmail) {
+      alert("Use the My Account window to delete your own account.");
+      return;
+    }
+    if (!confirm(`Permanently delete ${u.email}? This cannot be undone.`)) return;
+    setBusyId(u.id);
+    const supabase = createClient();
+    const { error } = await supabase.rpc("admin_delete_user", { target_id: u.id });
+    setBusyId(null);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setUsers((cur) => (cur ?? []).filter((x) => x.id !== u.id));
+  }
+
+  function fmt(d: string | null) {
+    if (!d) return "—";
+    return new Date(d).toLocaleString([], {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return (
+    <div style={{ fontFamily: "Tahoma, sans-serif", fontSize: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
+        <div style={{ fontWeight: "bold", fontSize: 14 }}>
+          Users ({users?.length ?? 0})
+        </div>
+        <button className="xp-btn" onClick={load} disabled={loading}>
+          {loading ? "Loading…" : "⟳ Refresh"}
+        </button>
+      </div>
+
+      {err && <div className="xp-error" style={{ marginBottom: 8 }}>{err}</div>}
+
+      {users && users.length > 0 && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "32px 1.4fr 1fr 1.1fr 1.1fr 70px",
+            fontSize: 12,
+            border: "1px solid #a0a0a0",
+          }}
+        >
+          <div style={headStyle}></div>
+          <div style={headStyle}>Email</div>
+          <div style={headStyle}>Display name</div>
+          <div style={headStyle}>Joined</div>
+          <div style={headStyle}>Last sign-in</div>
+          <div style={headStyle}>Action</div>
+
+          {users.map((u) => (
+            <AdminRow
+              key={u.id}
+              user={u}
+              currentEmail={currentEmail}
+              busy={busyId === u.id}
+              onDelete={() => deleteUser(u)}
+              fmt={fmt}
+            />
+          ))}
+        </div>
+      )}
+
+      {users && users.length === 0 && !loading && (
+        <div style={{ color: "#555" }}>No users yet.</div>
+      )}
+    </div>
+  );
+}
+
+const headStyle: React.CSSProperties = {
+  background: "linear-gradient(180deg, #f0f0f0, #d6d6d6)",
+  borderBottom: "1px solid #a0a0a0",
+  padding: "4px 6px",
+  fontWeight: "bold",
+};
+
+const cellStyle: React.CSSProperties = {
+  borderBottom: "1px solid #eee",
+  padding: "4px 6px",
+  display: "flex",
+  alignItems: "center",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+function AdminRow({
+  user,
+  currentEmail,
+  busy,
+  onDelete,
+  fmt,
+}: {
+  user: AdminUser;
+  currentEmail: string;
+  busy: boolean;
+  onDelete: () => void;
+  fmt: (d: string | null) => string;
+}) {
+  const isMe = user.email === currentEmail;
+  return (
+    <>
+      <div style={cellStyle}>
+        <Avatar
+          kind={user.avatar || "letter"}
+          letter={(user.display_name || user.email).charAt(0)}
+          size={24}
+        />
+      </div>
+      <div style={cellStyle} title={user.email}>
+        {user.email} {isMe && <span style={{ color: "#888", marginLeft: 4 }}>(you)</span>}
+      </div>
+      <div style={cellStyle}>{user.display_name || "—"}</div>
+      <div style={cellStyle}>{fmt(user.created_at)}</div>
+      <div style={cellStyle}>{fmt(user.last_sign_in_at)}</div>
+      <div style={cellStyle}>
+        <button
+          className="xp-btn"
+          style={{
+            background: isMe
+              ? "linear-gradient(180deg,#eee,#ccc)"
+              : "linear-gradient(180deg,#ff8080,#c62828)",
+            color: isMe ? "#888" : "white",
+            borderColor: isMe ? "#aaa" : "#8b0000",
+            fontSize: 11,
+            padding: "2px 8px",
+          }}
+          onClick={onDelete}
+          disabled={isMe || busy}
+          title={isMe ? "Use My Account to delete yourself" : "Delete this user"}
+        >
+          {busy ? "…" : "Delete"}
+        </button>
+      </div>
+    </>
   );
 }
 
