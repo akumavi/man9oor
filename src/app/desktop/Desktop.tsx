@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { logoutAction } from "../login/actions";
+import { createClient } from "@/lib/supabase/client";
+import { Avatar, AVATAR_KEYS, AVATAR_LABELS, type AvatarKey } from "@/components/Avatar";
 
-type WindowKind = "me" | "social";
+type WindowKind = "me" | "social" | "account";
 type ViewMode = "icons" | "list" | "columns";
 
 interface OpenWindow {
@@ -67,6 +70,20 @@ function FolderGlyph() {
   );
 }
 
+function AccountGlyph() {
+  return (
+    <svg width="48" height="48" viewBox="0 0 48 48">
+      <rect x="4" y="8" width="40" height="32" rx="3" fill="#4a7cc8" stroke="#1a3a6c" />
+      <rect x="6" y="10" width="36" height="6" fill="#ffffff" opacity="0.3" />
+      <circle cx="18" cy="26" r="5" fill="#ffd54f" stroke="#b7791f" />
+      <path d="M11 36 Q11 29 18 29 Q25 29 25 36 z" fill="#ffd54f" stroke="#b7791f" />
+      <rect x="28" y="22" width="12" height="2" fill="white" />
+      <rect x="28" y="27" width="10" height="2" fill="white" />
+      <rect x="28" y="32" width="12" height="2" fill="white" />
+    </svg>
+  );
+}
+
 function SocialGlyph({ color, icon }: { color: string; icon: string }) {
   return (
     <div
@@ -89,7 +106,18 @@ function SocialGlyph({ color, icon }: { color: string; icon: string }) {
   );
 }
 
-export default function Desktop({ displayName, email }: { displayName: string; email: string }) {
+export default function Desktop({
+  displayName: initialName,
+  email,
+  avatar: initialAvatar,
+}: {
+  displayName: string;
+  email: string;
+  avatar: AvatarKey;
+}) {
+  const router = useRouter();
+  const [displayName, setDisplayName] = useState(initialName);
+  const [avatar, setAvatar] = useState<AvatarKey>(initialAvatar);
   const [wins, setWins] = useState<OpenWindow[]>([]);
   const [selected, setSelected] = useState<WindowKind | null>(null);
   const [folderView, setFolderView] = useState<ViewMode>("icons");
@@ -100,14 +128,18 @@ export default function Desktop({ displayName, email }: { displayName: string; e
   useEffect(() => {
     const update = () => {
       const d = new Date();
-      setClock(
-        d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      );
+      setClock(d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
     };
     update();
     const t = setInterval(update, 15000);
     return () => clearInterval(t);
   }, []);
+
+  function windowTitle(kind: WindowKind) {
+    if (kind === "me") return "Me.txt — Notepad";
+    if (kind === "social") return "Social Media";
+    return "My Account";
+  }
 
   function openWindow(kind: WindowKind) {
     const existing = wins.find((w) => w.kind === kind);
@@ -120,16 +152,21 @@ export default function Desktop({ displayName, email }: { displayName: string; e
     }
     const id = crypto.randomUUID();
     zRef.current += 1;
+    const sizes: Record<WindowKind, { w: number; h: number }> = {
+      me: { w: 460, h: 360 },
+      social: { w: 560, h: 400 },
+      account: { w: 520, h: 480 },
+    };
     setWins((cur) => [
       ...cur,
       {
         id,
         kind,
-        title: kind === "me" ? "Me.txt — Notepad" : "Social Media",
+        title: windowTitle(kind),
         x: 120 + cur.length * 30,
         y: 60 + cur.length * 30,
-        w: kind === "me" ? 460 : 560,
-        h: kind === "me" ? 360 : 400,
+        w: sizes[kind].w,
+        h: sizes[kind].h,
         z: zRef.current,
         minimized: false,
       },
@@ -179,6 +216,15 @@ export default function Desktop({ displayName, email }: { displayName: string; e
     window.addEventListener("mouseup", onUp);
   }
 
+  function updateRemembered(name: string, av: AvatarKey) {
+    try {
+      const raw = localStorage.getItem("man9oor_remembered");
+      if (raw) {
+        localStorage.setItem("man9oor_remembered", JSON.stringify({ name, avatar: av }));
+      }
+    } catch {}
+  }
+
   return (
     <div
       className="xp-desktop"
@@ -210,6 +256,16 @@ export default function Desktop({ displayName, email }: { displayName: string; e
           </div>
           <div className="label">Social Media</div>
         </div>
+        <div
+          className={`xp-icon ${selected === "account" ? "selected" : ""}`}
+          onClick={() => setSelected("account")}
+          onDoubleClick={() => openWindow("account")}
+        >
+          <div className="glyph">
+            <AccountGlyph />
+          </div>
+          <div className="label">My Account</div>
+        </div>
       </div>
 
       {wins
@@ -227,7 +283,7 @@ export default function Desktop({ displayName, email }: { displayName: string; e
               onDoubleClick={() => toggleMinimize(w.id)}
             >
               <div className="title-text">
-                {w.kind === "me" ? "📝" : "📁"} <span>{w.title}</span>
+                {w.kind === "me" ? "📝" : w.kind === "social" ? "📁" : "👤"} <span>{w.title}</span>
               </div>
               <div className="xp-window-controls">
                 <div className="xp-ctl min" onClick={() => toggleMinimize(w.id)}>
@@ -276,13 +332,31 @@ export default function Desktop({ displayName, email }: { displayName: string; e
             )}
 
             <div className={`xp-window-body ${w.kind === "social" ? "folder" : ""}`}>
-              {w.kind === "me" ? <MeContent displayName={displayName} email={email} /> : null}
-              {w.kind === "social" ? <SocialContent view={folderView} /> : null}
+              {w.kind === "me" && <MeContent displayName={displayName} />}
+              {w.kind === "social" && <SocialContent view={folderView} />}
+              {w.kind === "account" && (
+                <AccountContent
+                  displayName={displayName}
+                  email={email}
+                  avatar={avatar}
+                  onSaved={(name, av) => {
+                    setDisplayName(name);
+                    setAvatar(av);
+                    updateRemembered(name, av);
+                  }}
+                  onDeleted={() => {
+                    try {
+                      localStorage.removeItem("man9oor_remembered");
+                    } catch {}
+                    router.push("/login");
+                    router.refresh();
+                  }}
+                />
+              )}
             </div>
           </div>
         ))}
 
-      {/* Taskbar */}
       <div className="xp-taskbar">
         <div className="xp-start" onClick={() => setStartOpen((s) => !s)}>
           <div className="flag" />
@@ -298,7 +372,7 @@ export default function Desktop({ displayName, email }: { displayName: string; e
                 else bringToFront(w.id);
               }}
             >
-              {w.kind === "me" ? "📝" : "📁"} <span>{w.title}</span>
+              {w.kind === "me" ? "📝" : w.kind === "social" ? "📁" : "👤"} <span>{w.title}</span>
             </div>
           ))}
         </div>
@@ -309,25 +383,10 @@ export default function Desktop({ displayName, email }: { displayName: string; e
         </div>
       </div>
 
-      {/* Start menu */}
       {startOpen && (
         <div className="xp-startmenu">
           <div className="user">
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 4,
-                background: "#c62828",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: "bold",
-                border: "2px solid white",
-              }}
-            >
-              {displayName.charAt(0).toUpperCase()}
-            </div>
+            <Avatar kind={avatar} letter={displayName.charAt(0)} size={36} />
             <div>{displayName}</div>
           </div>
           <div className="items">
@@ -349,6 +408,15 @@ export default function Desktop({ displayName, email }: { displayName: string; e
             >
               📁 Social Media
             </div>
+            <div
+              className="item"
+              onClick={() => {
+                openWindow("account");
+                setStartOpen(false);
+              }}
+            >
+              👤 My Account
+            </div>
           </div>
           <div className="footer">
             <form action={logoutAction}>
@@ -363,11 +431,11 @@ export default function Desktop({ displayName, email }: { displayName: string; e
   );
 }
 
-function MeContent({ displayName: _displayName, email: _email }: { displayName: string; email: string }) {
+function MeContent({ displayName }: { displayName: string }) {
   return (
     <div style={{ fontFamily: "Lucida Console, Consolas, monospace", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
 {`====================================
-       About Mansoor
+       About ${displayName}
 ====================================
 
 Hey — I'm Mansoor. Welcome to my little
@@ -390,13 +458,7 @@ function SocialContent({ view }: { view: ViewMode }) {
     return (
       <div className="view-icons">
         {SOCIALS.map((s) => (
-          <a
-            key={s.name}
-            href={s.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="xp-icon"
-          >
+          <a key={s.name} href={s.url} target="_blank" rel="noopener noreferrer" className="xp-icon">
             <div className="glyph">
               <SocialGlyph color={s.color} icon={s.icon} />
             </div>
@@ -437,6 +499,152 @@ function SocialContent({ view }: { view: ViewMode }) {
           </div>
         </a>
       ))}
+    </div>
+  );
+}
+
+function AccountContent({
+  displayName,
+  email,
+  avatar,
+  onSaved,
+  onDeleted,
+}: {
+  displayName: string;
+  email: string;
+  avatar: AvatarKey;
+  onSaved: (name: string, avatar: AvatarKey) => void;
+  onDeleted: () => void;
+}) {
+  const [name, setName] = useState(displayName);
+  const [picked, setPicked] = useState<AvatarKey>(avatar);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  async function save() {
+    setMsg(null);
+    setErr(null);
+    setSaving(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.updateUser({
+      data: { display_name: name, avatar: picked },
+    });
+    setSaving(false);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setMsg("Saved.");
+    onSaved(name, picked);
+  }
+
+  async function deleteAccount() {
+    setErr(null);
+    setMsg(null);
+    const supabase = createClient();
+    const { error } = await supabase.rpc("delete_user");
+    if (error) {
+      setErr(
+        "Delete failed: " +
+          error.message +
+          ". The delete_user() function may not be set up in Supabase yet.",
+      );
+      return;
+    }
+    await supabase.auth.signOut();
+    onDeleted();
+  }
+
+  return (
+    <div style={{ fontFamily: "Tahoma, sans-serif", fontSize: 13 }}>
+      <div
+        style={{
+          background: "#eef3fb",
+          border: "1px solid #a8c0e0",
+          padding: 10,
+          marginBottom: 12,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <Avatar kind={picked} letter={name.charAt(0)} size={56} />
+        <div>
+          <div style={{ fontWeight: "bold", fontSize: 15 }}>{name}</div>
+          <div style={{ color: "#555", fontSize: 12 }}>{email}</div>
+        </div>
+      </div>
+
+      <div style={{ fontWeight: "bold", marginBottom: 6 }}>Pick a picture</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        {AVATAR_KEYS.map((k) => (
+          <div key={k} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+            <Avatar
+              kind={k}
+              letter={name.charAt(0)}
+              size={54}
+              selected={picked === k}
+              onClick={() => setPicked(k)}
+            />
+            <div style={{ fontSize: 10, color: "#555" }}>{AVATAR_LABELS[k]}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ fontWeight: "bold", marginBottom: 4 }}>Change your display name</div>
+      <input
+        className="xp-input"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        style={{ marginBottom: 10 }}
+      />
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <button className="xp-btn xp-btn-primary" onClick={save} disabled={saving}>
+          {saving ? "Saving..." : "Save changes"}
+        </button>
+      </div>
+
+      {msg && <div className="xp-ok">{msg}</div>}
+      {err && <div className="xp-error">{err}</div>}
+
+      <hr style={{ border: 0, borderTop: "1px solid #c0c0c0", margin: "16px 0" }} />
+
+      <div style={{ fontWeight: "bold", marginBottom: 4, color: "#b71c1c" }}>Danger zone</div>
+      <div style={{ fontSize: 12, color: "#555", marginBottom: 8 }}>
+        Delete your account and all its data. This cannot be undone.
+      </div>
+      {!confirming ? (
+        <button
+          className="xp-btn"
+          style={{ background: "linear-gradient(180deg,#ff8080,#c62828)", color: "white", borderColor: "#8b0000" }}
+          onClick={() => setConfirming(true)}
+        >
+          Delete my account…
+        </button>
+      ) : (
+        <div style={{ background: "#fff4f4", border: "1px solid #c62828", padding: 10 }}>
+          <div style={{ marginBottom: 8 }}>Are you absolutely sure? This is permanent.</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="xp-btn" onClick={() => setConfirming(false)}>
+              Cancel
+            </button>
+            <button
+              className="xp-btn"
+              style={{
+                background: "linear-gradient(180deg,#ff8080,#c62828)",
+                color: "white",
+                borderColor: "#8b0000",
+              }}
+              onClick={deleteAccount}
+            >
+              Yes, delete forever
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

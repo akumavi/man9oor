@@ -2,20 +2,48 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { signupAction } from "../login/actions";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  async function onSubmit(formData: FormData) {
+  function onSubmit(formData: FormData) {
     setError(null);
     setOk(null);
+    const email = String(formData.get("email") ?? "");
+    const password = String(formData.get("password") ?? "");
+    const displayName = String(formData.get("displayName") ?? "");
+
     startTransition(async () => {
-      const result = await signupAction(formData);
-      if (result?.error) setError(result.error);
-      if (result?.ok) setOk(result.ok);
+      const supabase = createClient();
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { display_name: displayName, avatar: "letter" } },
+      });
+
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      try {
+        localStorage.setItem(
+          "man9oor_remembered",
+          JSON.stringify({ name: displayName, avatar: "letter" }),
+        );
+      } catch {}
+
+      if (data.session) {
+        router.push("/desktop");
+        router.refresh();
+      } else {
+        setOk("Check your email to confirm your account, then come back and sign in.");
+      }
     });
   }
 

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Desktop from "./Desktop";
+import type { AvatarKey } from "@/components/Avatar";
 
 export const instant = false;
 
@@ -16,5 +17,7 @@ export default async function DesktopPage() {
     user.email?.split("@")[0] ??
     "User";
 
-  return <Desktop displayName={displayName} email={user.email ?? ""} />;
+  const avatar = ((user.user_metadata?.avatar as AvatarKey | undefined) ?? "letter") as AvatarKey;
+
+  return <Desktop displayName={displayName} email={user.email ?? ""} avatar={avatar} />;
 }

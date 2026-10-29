@@ -1,21 +1,58 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { loginAction } from "./actions";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { Avatar, type AvatarKey } from "@/components/Avatar";
+
+type Remembered = { name: string; avatar: AvatarKey };
 
 export default function LoginPage() {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
+  const [remembered, setRemembered] = useState<Remembered | null>(null);
+  const [remember, setRemember] = useState(true);
 
-  async function onSubmit(formData: FormData) {
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("man9oor_remembered");
+      if (raw) setRemembered(JSON.parse(raw));
+    } catch {}
+  }, []);
+
+  function onSubmit(formData: FormData) {
     setError(null);
+    const email = String(formData.get("email") ?? "");
+    const password = String(formData.get("password") ?? "");
     startTransition(async () => {
-      const result = await loginAction(formData);
-      if (result?.error) setError(result.error);
+      const supabase = createClient();
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setError(error.message);
+        return;
+      }
+      try {
+        if (remember && data.user) {
+          const name =
+            (data.user.user_metadata?.display_name as string | undefined) ??
+            data.user.email?.split("@")[0] ??
+            "User";
+          const avatar = (data.user.user_metadata?.avatar as AvatarKey) ?? "letter";
+          localStorage.setItem("man9oor_remembered", JSON.stringify({ name, avatar }));
+        } else {
+          localStorage.removeItem("man9oor_remembered");
+        }
+      } catch {}
+      router.push("/desktop");
+      router.refresh();
     });
   }
+
+  const tileName = remembered?.name ?? "Guest";
+  const tileAvatar: AvatarKey = remembered?.avatar ?? "letter";
 
   return (
     <div className="xp-login-bg">
@@ -43,9 +80,9 @@ export default function LoginPage() {
           <div>
             {!showForm ? (
               <div className="xp-user-card" onClick={() => setShowForm(true)}>
-                <div className="xp-user-avatar">M</div>
+                <Avatar kind={tileAvatar} letter={tileName.charAt(0)} />
                 <div>
-                  <div className="xp-user-name">Mansoor</div>
+                  <div className="xp-user-name">{tileName}</div>
                   <div className="xp-user-sub">Click to sign in</div>
                 </div>
               </div>
@@ -56,6 +93,22 @@ export default function LoginPage() {
                 <input className="xp-input" name="email" type="email" required autoFocus />
                 <label>Password</label>
                 <input className="xp-input" name="password" type="password" required />
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    marginTop: 10,
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
+                  />
+                  <span>Remember me on this computer</span>
+                </label>
                 <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
                   <button
                     type="button"
