@@ -481,17 +481,8 @@ body {
   .xp-icon { width: 74px; font-size: 11px; padding: 4px 2px; }
   .xp-icon .glyph { margin-bottom: 2px; transform: scale(0.9); }
 
-  /* Windows go nearly fullscreen; drag disabled on touch */
-  .xp-window {
-    position: fixed !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 100vw !important;
-    height: calc(100vh - 36px) !important;
-    height: calc(100dvh - 36px) !important;
-    min-width: 0;
-    border-radius: 0;
-  }
+  /* Windows: positioning handled by component inline styles on mobile */
+  .xp-window { min-width: 0; }
   .xp-window-title { cursor: default; font-size: 14px; padding: 6px 8px; }
   .xp-ctl { width: 28px; height: 24px; font-size: 14px; }
   .xp-menubar span { padding: 4px 8px; font-size: 13px; }

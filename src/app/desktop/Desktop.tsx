@@ -139,6 +139,7 @@ export default function Desktop({
   const [startOpen, setStartOpen] = useState(false);
   const [clock, setClock] = useState("");
   const [isMobile, setIsMobile] = useState(false);
+  const [vp, setVp] = useState({ w: 1024, h: 768 });
   const zRef = useRef(10);
 
   useEffect(() => {
@@ -153,10 +154,17 @@ export default function Desktop({
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 700px)");
-    const update = () => setIsMobile(mq.matches);
+    const update = () => {
+      setIsMobile(mq.matches);
+      setVp({ w: window.innerWidth, h: window.innerHeight });
+    };
     update();
     mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
+    window.addEventListener("resize", update);
+    return () => {
+      mq.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
+    };
   }, []);
 
   function windowTitle(kind: WindowKind) {
@@ -327,19 +335,32 @@ export default function Desktop({
           <div
             key={w.id}
             className="xp-window"
-            style={
-              w.maximized
-                ? {
-                    position: "fixed",
-                    left: 0,
-                    top: 0,
-                    width: "100vw",
-                    height: "calc(100dvh - 36px)",
-                    borderRadius: 0,
-                    zIndex: w.z,
-                  }
-                : { left: w.x, top: w.y, width: w.w, height: w.h, zIndex: w.z }
-            }
+            style={(() => {
+              if (w.maximized) {
+                return {
+                  position: "fixed" as const,
+                  left: 0,
+                  top: 0,
+                  width: vp.w,
+                  height: vp.h - 36,
+                  borderRadius: 0,
+                  zIndex: w.z,
+                };
+              }
+              if (isMobile) {
+                const ww = Math.min(w.w, vp.w - 16);
+                const hh = Math.min(w.h, vp.h - 80);
+                return {
+                  position: "fixed" as const,
+                  left: Math.max(8, (vp.w - ww) / 2),
+                  top: Math.max(8, (vp.h - 36 - hh) / 2),
+                  width: ww,
+                  height: hh,
+                  zIndex: w.z,
+                };
+              }
+              return { left: w.x, top: w.y, width: w.w, height: w.h, zIndex: w.z };
+            })()}
             onMouseDown={() => bringToFront(w.id)}
           >
             <div
@@ -919,6 +940,24 @@ function AccountContent({
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+
+  // Pull fresh user data on mount — the server-rendered prop can lag
+  // behind recent updates (another device, cached session, etc).
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      const u = data.user;
+      if (!u) return;
+      const freshName = (u.user_metadata?.display_name as string | undefined) ?? name;
+      const freshAvatar = (u.user_metadata?.avatar as AvatarKey | undefined) ?? picked;
+      if (freshName !== name) setName(freshName);
+      if (freshAvatar !== picked) setPicked(freshAvatar);
+      if (freshName !== displayName || freshAvatar !== avatar) {
+        onSaved(freshName, freshAvatar);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function save() {
     setMsg(null);
