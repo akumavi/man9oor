@@ -72,12 +72,26 @@ export default function SignupPage() {
 
           <form action={onSubmit} className="xp-form-panel">
             <div style={{ fontWeight: "bold", marginBottom: 6 }}>New account</div>
-            <label>Display name</label>
-            <input className="xp-input" name="displayName" required autoFocus />
+            <label>Display name (2–24)</label>
+            <input
+              className="xp-input"
+              name="displayName"
+              required
+              autoFocus
+              minLength={2}
+              maxLength={24}
+            />
             <label>Email</label>
-            <input className="xp-input" name="email" type="email" required />
-            <label>Password (min 6 chars)</label>
-            <input className="xp-input" name="password" type="password" minLength={6} required />
+            <input className="xp-input" name="email" type="email" required maxLength={254} />
+            <label>Password (6–72 chars)</label>
+            <input
+              className="xp-input"
+              name="password"
+              type="password"
+              minLength={6}
+              maxLength={72}
+              required
+            />
             <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
               <Link href="/login" className="xp-btn">
                 Back

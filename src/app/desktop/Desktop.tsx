@@ -19,6 +19,7 @@ interface OpenWindow {
   h: number;
   z: number;
   minimized: boolean;
+  maximized: boolean;
 }
 
 const SOCIALS = [
@@ -183,18 +184,27 @@ export default function Desktop({
       account: { w: 520, h: 480 },
       admin: { w: 720, h: 480 },
     };
+    const sz = sizes[kind];
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
+    const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+    const openCount = wins.length;
+    const x = isMobile ? Math.max(8, (vw - Math.min(sz.w, vw - 16)) / 2) : 120 + openCount * 30;
+    const y = isMobile ? Math.max(8, (vh - Math.min(sz.h, vh - 60)) / 2 - 20) : 60 + openCount * 30;
+    const w = isMobile ? Math.min(sz.w, vw - 16) : sz.w;
+    const h = isMobile ? Math.min(sz.h, vh - 60) : sz.h;
     setWins((cur) => [
       ...cur,
       {
         id,
         kind,
         title: windowTitle(kind),
-        x: 120 + cur.length * 30,
-        y: 60 + cur.length * 30,
-        w: sizes[kind].w,
-        h: sizes[kind].h,
+        x,
+        y,
+        w,
+        h,
         z: zRef.current,
         minimized: false,
+        maximized: false,
       },
     ]);
   }
@@ -211,6 +221,10 @@ export default function Desktop({
 
   function toggleMinimize(id: string) {
     setWins((cur) => cur.map((w) => (w.id === id ? { ...w, minimized: !w.minimized } : w)));
+  }
+
+  function toggleMaximize(id: string) {
+    setWins((cur) => cur.map((w) => (w.id === id ? { ...w, maximized: !w.maximized } : w)));
   }
 
   function startDrag(id: string, e: React.MouseEvent) {
@@ -315,7 +329,7 @@ export default function Desktop({
             key={w.id}
             className="xp-window"
             style={
-              isMobile
+              w.maximized
                 ? {
                     position: "fixed",
                     left: 0,
@@ -332,9 +346,9 @@ export default function Desktop({
             <div
               className="xp-window-title"
               onMouseDown={(e) => {
-                if (!isMobile) startDrag(w.id, e);
+                if (!isMobile && !w.maximized) startDrag(w.id, e);
               }}
-              onDoubleClick={() => toggleMinimize(w.id)}
+              onDoubleClick={() => toggleMaximize(w.id)}
             >
               <div className="title-text">
                 {w.kind === "me"
@@ -350,7 +364,9 @@ export default function Desktop({
                 <div className="xp-ctl min" onClick={() => toggleMinimize(w.id)}>
                   _
                 </div>
-                <div className="xp-ctl max">▢</div>
+                <div className="xp-ctl max" onClick={() => toggleMaximize(w.id)}>
+                  {w.maximized ? "❐" : "▢"}
+                </div>
                 <div className="xp-ctl" onClick={() => closeWindow(w.id)}>
                   ✕
                 </div>
@@ -405,6 +421,7 @@ export default function Desktop({
                     setDisplayName(name);
                     setAvatar(av);
                     updateRemembered(name, av);
+                    router.refresh();
                   }}
                   onDeleted={() => {
                     try {
@@ -838,14 +855,17 @@ function ChangePassword({ email }: { email: string }) {
         type="password"
         value={current}
         onChange={(e) => setCurrent(e.target.value)}
+        maxLength={72}
         style={{ marginBottom: 8 }}
       />
-      <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>New password</label>
+      <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>New password (6–72)</label>
       <input
         className="xp-input"
         type="password"
         value={next}
         onChange={(e) => setNext(e.target.value)}
+        minLength={6}
+        maxLength={72}
         style={{ marginBottom: 8 }}
       />
       <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Confirm new password</label>
@@ -854,6 +874,7 @@ function ChangePassword({ email }: { email: string }) {
         type="password"
         value={confirm}
         onChange={(e) => setConfirm(e.target.value)}
+        maxLength={72}
         style={{ marginBottom: 10 }}
       />
       <button
@@ -892,18 +913,33 @@ function AccountContent({
   async function save() {
     setMsg(null);
     setErr(null);
+    const trimmed = name.trim();
+    if (trimmed.length < 2) {
+      setErr("Display name must be at least 2 characters.");
+      return;
+    }
+    if (trimmed.length > 24) {
+      setErr("Display name must be 24 characters or fewer.");
+      return;
+    }
     setSaving(true);
     const supabase = createClient();
     const { error } = await supabase.auth.updateUser({
-      data: { display_name: name, avatar: picked },
+      data: { display_name: trimmed, avatar: picked },
     });
+    if (!error) {
+      // Force session JWT + cookies to pick up the new metadata so the next
+      // server render (and next sign-in) returns fresh data.
+      await supabase.auth.refreshSession();
+    }
     setSaving(false);
     if (error) {
       setErr(error.message);
       return;
     }
+    setName(trimmed);
     setMsg("Saved.");
-    onSaved(name, picked);
+    onSaved(trimmed, picked);
   }
 
   async function deleteAccount() {
@@ -959,11 +995,14 @@ function AccountContent({
         ))}
       </div>
 
-      <div style={{ fontWeight: "bold", marginBottom: 4 }}>Change your display name</div>
+      <div style={{ fontWeight: "bold", marginBottom: 4 }}>
+        Change your display name <span style={{ color: "#888", fontWeight: "normal", fontSize: 11 }}>({name.length}/24)</span>
+      </div>
       <input
         className="xp-input"
         value={name}
         onChange={(e) => setName(e.target.value)}
+        maxLength={24}
         style={{ marginBottom: 10 }}
       />
 

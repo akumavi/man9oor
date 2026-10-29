@@ -104,6 +104,7 @@ export default function LoginPage() {
                   autoFocus
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  maxLength={254}
                 />
                 <label>Password</label>
                 <input
@@ -112,6 +113,7 @@ export default function LoginPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  maxLength={72}
                 />
                 <label
                   style={{
