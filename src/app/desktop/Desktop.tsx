@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AVATAR_KEYS, AVATAR_LABELS, type AvatarKey } from "@/components/Avatar";
 
-type WindowKind = "me" | "social" | "account" | "admin";
+type WindowKind = "me" | "social" | "account" | "admin" | "meeting";
 type ViewMode = "icons" | "list" | "columns";
 
 interface OpenWindow {
@@ -77,6 +77,20 @@ function AdminGlyph() {
       <path d="M24 4 L40 10 L40 16 L8 16 L8 10 Z" fill="#4a9fff" stroke="#0a3a6c" />
       <circle cx="24" cy="24" r="5" fill="#ffd54f" stroke="#8a6b1f" />
       <rect x="22" y="27" width="4" height="7" fill="#ffd54f" stroke="#8a6b1f" />
+    </svg>
+  );
+}
+
+function CalendarGlyph() {
+  return (
+    <svg width="48" height="48" viewBox="0 0 48 48">
+      <rect x="4" y="8" width="40" height="36" rx="3" fill="white" stroke="#555" />
+      <rect x="4" y="8" width="40" height="10" fill="#d13535" stroke="#555" />
+      <rect x="12" y="4" width="4" height="10" rx="1" fill="#444" />
+      <rect x="32" y="4" width="4" height="10" rx="1" fill="#444" />
+      <text x="24" y="36" textAnchor="middle" fontFamily="Tahoma, sans-serif" fontSize="14" fontWeight="bold" fill="#333">
+        {new Date().getDate()}
+      </text>
     </svg>
   );
 }
@@ -170,7 +184,8 @@ export default function Desktop({
   function windowTitle(kind: WindowKind) {
     if (kind === "me") return "About Me.txt — Notepad";
     if (kind === "social") return "Social Media";
-    if (kind === "admin") return "Control Panel — Users";
+    if (kind === "admin") return "Control Panel";
+    if (kind === "meeting") return "Book a Meeting";
     return "My Account";
   }
 
@@ -189,7 +204,8 @@ export default function Desktop({
       me: { w: 460, h: 360 },
       social: { w: 560, h: 400 },
       account: { w: 520, h: 480 },
-      admin: { w: 720, h: 480 },
+      admin: { w: 760, h: 520 },
+      meeting: { w: 520, h: 540 },
     };
     const sz = sizes[kind];
     const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
@@ -303,6 +319,16 @@ export default function Desktop({
           </div>
           <div className="label">Social Media</div>
         </div>
+        <div
+          className={`xp-icon ${selected === "meeting" ? "selected" : ""}`}
+          onClick={() => setSelected("meeting")}
+          onDoubleClick={() => openWindow("meeting")}
+        >
+          <div className="glyph">
+            <CalendarGlyph />
+          </div>
+          <div className="label">Book a Meeting</div>
+        </div>
         {signedIn && (
           <div
             className={`xp-icon ${selected === "account" ? "selected" : ""}`}
@@ -377,7 +403,9 @@ export default function Desktop({
                     ? "📁"
                     : w.kind === "admin"
                       ? "🛡"
-                      : "👤"}{" "}
+                      : w.kind === "meeting"
+                        ? "📅"
+                        : "👤"}{" "}
                 <span>{w.title}</span>
               </div>
               <div className="xp-window-controls">
@@ -432,6 +460,12 @@ export default function Desktop({
               {w.kind === "me" && <MeContent />}
               {w.kind === "social" && <SocialContent view={folderView} />}
               {w.kind === "admin" && <AdminContent currentEmail={email} />}
+              {w.kind === "meeting" && (
+                <MeetingContent
+                  signedIn={signedIn}
+                  onSignIn={() => router.push("/login")}
+                />
+              )}
               {w.kind === "account" && (
                 <AccountContent
                   displayName={displayName}
@@ -477,7 +511,9 @@ export default function Desktop({
                   ? "📁"
                   : w.kind === "admin"
                     ? "🛡"
-                    : "👤"}{" "}
+                    : w.kind === "meeting"
+                      ? "📅"
+                      : "👤"}{" "}
               <span>{w.title}</span>
             </div>
           ))}
@@ -513,6 +549,15 @@ export default function Desktop({
               }}
             >
               📁 Social Media
+            </div>
+            <div
+              className="item"
+              onClick={() => {
+                openWindow("meeting");
+                setStartOpen(false);
+              }}
+            >
+              📅 Book a Meeting
             </div>
             {signedIn && (
               <div
@@ -649,6 +694,292 @@ function SocialContent({ view }: { view: ViewMode }) {
   );
 }
 
+type Meeting = {
+  id: string;
+  user_id: string;
+  starts_at: string;
+  duration_minutes: number;
+  topic: string | null;
+  status: "pending" | "confirmed" | "cancelled";
+  created_at: string;
+};
+
+const TIME_SLOTS = ["10:00", "11:00", "14:00", "15:00", "16:00", "17:00"];
+
+function fmtDateTime(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function nextWeekdays(count: number): string[] {
+  const result: string[] = [];
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 1);
+  while (result.length < count) {
+    const dow = d.getDay();
+    if (dow !== 5 && dow !== 6) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      result.push(`${y}-${m}-${day}`);
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return result;
+}
+
+function MeetingContent({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: () => void }) {
+  const [mine, setMine] = useState<Meeting[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [date, setDate] = useState(nextWeekdays(1)[0] ?? "");
+  const [time, setTime] = useState(TIME_SLOTS[0]);
+  const [topic, setTopic] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const dates = nextWeekdays(10);
+
+  async function load() {
+    if (!signedIn) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("meetings")
+      .select("*")
+      .order("starts_at", { ascending: true });
+    setLoading(false);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setMine((data ?? []) as Meeting[]);
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn]);
+
+  async function book() {
+    setErr(null);
+    setMsg(null);
+    const startsAt = new Date(`${date}T${time}:00`);
+    if (startsAt.getTime() < Date.now()) {
+      setErr("Pick a time in the future.");
+      return;
+    }
+    setBusy(true);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setBusy(false);
+      setErr("Please sign in first.");
+      return;
+    }
+    const { error } = await supabase.from("meetings").insert({
+      user_id: user.id,
+      starts_at: startsAt.toISOString(),
+      duration_minutes: 30,
+      topic: topic.trim() || null,
+      status: "pending",
+    });
+    setBusy(false);
+    if (error) {
+      setErr(error.message + " — did you run the meetings SQL in Supabase?");
+      return;
+    }
+    setMsg("Request sent! You'll see it in your list below once Mansoor reviews it.");
+    setTopic("");
+    load();
+  }
+
+  async function cancel(id: string) {
+    if (!confirm("Cancel this meeting request?")) return;
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("meetings")
+      .update({ status: "cancelled" })
+      .eq("id", id);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    load();
+  }
+
+  if (!signedIn) {
+    return (
+      <div style={{ fontFamily: "Tahoma, sans-serif", fontSize: 13 }}>
+        <div
+          style={{
+            background: "#eef3fb",
+            border: "1px solid #a8c0e0",
+            padding: 14,
+            marginBottom: 10,
+          }}
+        >
+          <div style={{ fontWeight: "bold", fontSize: 15, marginBottom: 4 }}>
+            📅 Book a 30-minute meeting
+          </div>
+          <div style={{ color: "#555", lineHeight: 1.5 }}>
+            Hey — want to chat? I take short calls to meet new people, talk about ideas,
+            or just hang out. Sign in to request a time that works for you.
+          </div>
+        </div>
+        <button className="xp-btn xp-btn-primary" onClick={onSignIn}>
+          🔑 Sign in to book
+        </button>
+      </div>
+    );
+  }
+
+  const upcoming = (mine ?? []).filter(
+    (m) => new Date(m.starts_at).getTime() > Date.now() - 2 * 60 * 60 * 1000 && m.status !== "cancelled",
+  );
+
+  return (
+    <div style={{ fontFamily: "Tahoma, sans-serif", fontSize: 13 }}>
+      <div style={{ fontWeight: "bold", marginBottom: 6 }}>Request a time</div>
+      <div style={{ fontSize: 12, color: "#555", marginBottom: 10 }}>
+        Weekday slots, 30 minutes each. All times are your local timezone.
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <div>
+          <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Date</label>
+          <select className="xp-input" value={date} onChange={(e) => setDate(e.target.value)}>
+            {dates.map((d) => (
+              <option key={d} value={d}>
+                {new Date(d + "T12:00").toLocaleDateString([], {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Time</label>
+          <select className="xp-input" value={time} onChange={(e) => setTime(e.target.value)}>
+            {TIME_SLOTS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>
+        What would you like to talk about? <span style={{ color: "#888" }}>({topic.length}/300)</span>
+      </label>
+      <textarea
+        className="xp-input"
+        value={topic}
+        onChange={(e) => setTopic(e.target.value)}
+        maxLength={300}
+        rows={3}
+        style={{ marginBottom: 10, resize: "vertical", fontFamily: "Tahoma, sans-serif" }}
+        placeholder="Optional — a line or two helps Mansoor prepare."
+      />
+
+      <button className="xp-btn xp-btn-primary" onClick={book} disabled={busy}>
+        {busy ? "Sending…" : "📅 Request meeting"}
+      </button>
+
+      {msg && <div className="xp-ok" style={{ marginTop: 6 }}>{msg}</div>}
+      {err && <div className="xp-error" style={{ marginTop: 6 }}>{err}</div>}
+
+      <hr style={{ border: 0, borderTop: "1px solid #c0c0c0", margin: "16px 0" }} />
+
+      <div style={{ fontWeight: "bold", marginBottom: 6 }}>
+        Your meetings {loading ? "(loading…)" : `(${upcoming.length})`}
+      </div>
+      {upcoming.length === 0 && !loading && (
+        <div style={{ color: "#777", fontSize: 12 }}>No upcoming meetings yet.</div>
+      )}
+      <div style={{ display: "grid", gap: 6 }}>
+        {upcoming.map((m) => (
+          <div
+            key={m.id}
+            style={{
+              border: "1px solid #c0c0c0",
+              background: "#fafafa",
+              padding: 8,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: "bold" }}>{fmtDateTime(m.starts_at)}</div>
+              {m.topic && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "#555",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={m.topic}
+                >
+                  {m.topic}
+                </div>
+              )}
+              <div style={{ fontSize: 11, marginTop: 2 }}>
+                <StatusBadge status={m.status} />
+              </div>
+            </div>
+            {m.status === "pending" && (
+              <button className="xp-btn" onClick={() => cancel(m.id)}>
+                Cancel
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: Meeting["status"] }) {
+  const styles: Record<Meeting["status"], React.CSSProperties> = {
+    pending: { background: "#fff3cd", color: "#856404", border: "1px solid #ffeaa7" },
+    confirmed: { background: "#d4edda", color: "#155724", border: "1px solid #c3e6cb" },
+    cancelled: { background: "#f8d7da", color: "#721c24", border: "1px solid #f5c6cb" },
+  };
+  return (
+    <span
+      style={{
+        ...styles[status],
+        padding: "2px 6px",
+        borderRadius: 3,
+        fontSize: 11,
+        textTransform: "uppercase",
+        fontWeight: "bold",
+      }}
+    >
+      {status}
+    </span>
+  );
+}
+
 type AdminUser = {
   id: string;
   email: string;
@@ -659,8 +990,12 @@ type AdminUser = {
   email_confirmed_at: string | null;
 };
 
+type AdminMeeting = Meeting & { user_email: string; user_display_name: string };
+
 function AdminContent({ currentEmail }: { currentEmail: string }) {
+  const [tab, setTab] = useState<"users" | "meetings">("users");
   const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [meetings, setMeetings] = useState<AdminMeeting[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -669,18 +1004,44 @@ function AdminContent({ currentEmail }: { currentEmail: string }) {
     setLoading(true);
     setErr(null);
     const supabase = createClient();
-    const { data, error } = await supabase.rpc("list_users");
-    setLoading(false);
-    if (error) {
-      setErr(error.message + " — did you run the admin SQL in Supabase?");
-      return;
+    if (tab === "users") {
+      const { data, error } = await supabase.rpc("list_users");
+      setLoading(false);
+      if (error) {
+        setErr(error.message + " — did you run the admin SQL in Supabase?");
+        return;
+      }
+      setUsers((data ?? []) as AdminUser[]);
+    } else {
+      const { data, error } = await supabase.rpc("admin_list_meetings");
+      setLoading(false);
+      if (error) {
+        setErr(error.message + " — did you run the meetings SQL in Supabase?");
+        return;
+      }
+      setMeetings((data ?? []) as AdminMeeting[]);
     }
-    setUsers((data ?? []) as AdminUser[]);
   }
 
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  async function updateMeetingStatus(id: string, status: "confirmed" | "cancelled") {
+    setBusyId(id);
+    const supabase = createClient();
+    const { error } = await supabase.rpc("admin_update_meeting_status", {
+      meeting_id: id,
+      new_status: status,
+    });
+    setBusyId(null);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setMeetings((cur) => (cur ?? []).map((m) => (m.id === id ? { ...m, status } : m)));
+  }
 
   async function deleteUser(u: AdminUser) {
     if (u.email === currentEmail) {
@@ -718,10 +1079,24 @@ function AdminContent({ currentEmail }: { currentEmail: string }) {
           justifyContent: "space-between",
           alignItems: "center",
           marginBottom: 8,
+          gap: 8,
         }}
       >
-        <div style={{ fontWeight: "bold", fontSize: 14 }}>
-          Users ({users?.length ?? 0})
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            className="xp-btn"
+            style={tab === "users" ? { background: "linear-gradient(180deg,#3b85eb,#1a5fd8)", color: "white", borderColor: "#0a3a9c" } : {}}
+            onClick={() => setTab("users")}
+          >
+            👥 Users
+          </button>
+          <button
+            className="xp-btn"
+            style={tab === "meetings" ? { background: "linear-gradient(180deg,#3b85eb,#1a5fd8)", color: "white", borderColor: "#0a3a9c" } : {}}
+            onClick={() => setTab("meetings")}
+          >
+            📅 Meetings
+          </button>
         </div>
         <button className="xp-btn" onClick={load} disabled={loading}>
           {loading ? "Loading…" : "⟳ Refresh"}
@@ -730,7 +1105,7 @@ function AdminContent({ currentEmail }: { currentEmail: string }) {
 
       {err && <div className="xp-error" style={{ marginBottom: 8 }}>{err}</div>}
 
-      {users && users.length > 0 && (
+      {tab === "users" && users && users.length > 0 && (
         <div
           style={{
             display: "grid",
@@ -759,8 +1134,79 @@ function AdminContent({ currentEmail }: { currentEmail: string }) {
         </div>
       )}
 
-      {users && users.length === 0 && !loading && (
+      {tab === "users" && users && users.length === 0 && !loading && (
         <div style={{ color: "#555" }}>No users yet.</div>
+      )}
+
+      {tab === "meetings" && meetings && meetings.length > 0 && (
+        <div style={{ display: "grid", gap: 6 }}>
+          {meetings.map((m) => (
+            <div
+              key={m.id}
+              style={{
+                border: "1px solid #c0c0c0",
+                background: "#fafafa",
+                padding: 10,
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                gap: 10,
+                alignItems: "start",
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: "bold" }}>{fmtDateTime(m.starts_at)}</div>
+                <div style={{ fontSize: 12, color: "#333", marginTop: 2 }}>
+                  <strong>{m.user_display_name}</strong>{" "}
+                  <span style={{ color: "#666" }}>&lt;{m.user_email}&gt;</span>
+                </div>
+                {m.topic && (
+                  <div style={{ fontSize: 12, color: "#444", marginTop: 4, fontStyle: "italic" }}>
+                    &ldquo;{m.topic}&rdquo;
+                  </div>
+                )}
+                <div style={{ marginTop: 4 }}>
+                  <StatusBadge status={m.status} />
+                </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {m.status === "pending" && (
+                  <button
+                    className="xp-btn"
+                    style={{
+                      background: "linear-gradient(180deg,#5bd060,#2e8a33)",
+                      color: "white",
+                      borderColor: "#1a5e1e",
+                      fontSize: 11,
+                    }}
+                    disabled={busyId === m.id}
+                    onClick={() => updateMeetingStatus(m.id, "confirmed")}
+                  >
+                    ✓ Confirm
+                  </button>
+                )}
+                {m.status !== "cancelled" && (
+                  <button
+                    className="xp-btn"
+                    style={{
+                      background: "linear-gradient(180deg,#ff8080,#c62828)",
+                      color: "white",
+                      borderColor: "#8b0000",
+                      fontSize: 11,
+                    }}
+                    disabled={busyId === m.id}
+                    onClick={() => updateMeetingStatus(m.id, "cancelled")}
+                  >
+                    ✕ Decline
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === "meetings" && meetings && meetings.length === 0 && !loading && (
+        <div style={{ color: "#555" }}>No meetings yet.</div>
       )}
     </div>
   );
