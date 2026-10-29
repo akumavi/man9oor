@@ -118,11 +118,13 @@ function SocialGlyph({ color, icon }: { color: string; icon: string }) {
 }
 
 export default function Desktop({
+  signedIn,
   displayName: initialName,
   email,
   avatar: initialAvatar,
   isAdmin,
 }: {
+  signedIn: boolean;
   displayName: string;
   email: string;
   avatar: AvatarKey;
@@ -149,7 +151,7 @@ export default function Desktop({
   }, []);
 
   function windowTitle(kind: WindowKind) {
-    if (kind === "me") return "Me.txt — Notepad";
+    if (kind === "me") return "About Me.txt — Notepad";
     if (kind === "social") return "Social Media";
     if (kind === "admin") return "Control Panel — Users";
     return "My Account";
@@ -259,7 +261,7 @@ export default function Desktop({
           <div className="glyph">
             <FileGlyph />
           </div>
-          <div className="label">Me.txt</div>
+          <div className="label">About Me.txt</div>
         </div>
         <div
           className={`xp-icon ${selected === "social" ? "selected" : ""}`}
@@ -271,16 +273,18 @@ export default function Desktop({
           </div>
           <div className="label">Social Media</div>
         </div>
-        <div
-          className={`xp-icon ${selected === "account" ? "selected" : ""}`}
-          onClick={() => setSelected("account")}
-          onDoubleClick={() => openWindow("account")}
-        >
-          <div className="glyph">
-            <AccountGlyph />
+        {signedIn && (
+          <div
+            className={`xp-icon ${selected === "account" ? "selected" : ""}`}
+            onClick={() => setSelected("account")}
+            onDoubleClick={() => openWindow("account")}
+          >
+            <div className="glyph">
+              <AccountGlyph />
+            </div>
+            <div className="label">My Account</div>
           </div>
-          <div className="label">My Account</div>
-        </div>
+        )}
         {isAdmin && (
           <div
             className={`xp-icon ${selected === "admin" ? "selected" : ""}`}
@@ -366,7 +370,7 @@ export default function Desktop({
             )}
 
             <div className={`xp-window-body ${w.kind === "social" ? "folder" : ""}`}>
-              {w.kind === "me" && <MeContent displayName={displayName} />}
+              {w.kind === "me" && <MeContent />}
               {w.kind === "social" && <SocialContent view={folderView} />}
               {w.kind === "admin" && <AdminContent currentEmail={email} />}
               {w.kind === "account" && (
@@ -450,15 +454,17 @@ export default function Desktop({
             >
               📁 Social Media
             </div>
-            <div
-              className="item"
-              onClick={() => {
-                openWindow("account");
-                setStartOpen(false);
-              }}
-            >
-              👤 My Account
-            </div>
+            {signedIn && (
+              <div
+                className="item"
+                onClick={() => {
+                  openWindow("account");
+                  setStartOpen(false);
+                }}
+              >
+                👤 My Account
+              </div>
+            )}
             {isAdmin && (
               <div
                 className="item"
@@ -470,13 +476,29 @@ export default function Desktop({
                 🛡 Control Panel
               </div>
             )}
+            {!signedIn && (
+              <>
+                <div className="item" onClick={() => router.push("/login")}>
+                  🔑 Sign in to profile
+                </div>
+                <div className="item" onClick={() => router.push("/signup")}>
+                  ✨ Create account
+                </div>
+              </>
+            )}
           </div>
           <div className="footer">
-            <form action={logoutAction}>
-              <button className="xp-btn" type="submit">
-                ⏻ Log Off
+            {signedIn ? (
+              <form action={logoutAction}>
+                <button className="xp-btn" type="submit">
+                  ⏻ Log Off
+                </button>
+              </form>
+            ) : (
+              <button className="xp-btn" onClick={() => router.push("/login")}>
+                🔑 Sign in
               </button>
-            </form>
+            )}
           </div>
         </div>
       )}
@@ -484,11 +506,11 @@ export default function Desktop({
   );
 }
 
-function MeContent({ displayName }: { displayName: string }) {
+function MeContent() {
   return (
     <div style={{ fontFamily: "Lucida Console, Consolas, monospace", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
 {`====================================
-       About ${displayName}
+       About Mansoor
 ====================================
 
 Hey — I'm Mansoor. Welcome to my little
