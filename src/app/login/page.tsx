@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [showForm, setShowForm] = useState(false);
   const [remembered, setRemembered] = useState<Remembered | null>(null);
   const [remember, setRemember] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   useEffect(() => {
     try {
@@ -23,15 +25,14 @@ export default function LoginPage() {
     } catch {}
   }, []);
 
-  function onSubmit(formData: FormData) {
+  function onSubmit() {
     setError(null);
-    const email = String(formData.get("email") ?? "");
-    const password = String(formData.get("password") ?? "");
     startTransition(async () => {
       const supabase = createClient();
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         setError(error.message);
+        setPassword("");
         return;
       }
       try {
@@ -87,12 +88,31 @@ export default function LoginPage() {
                 </div>
               </div>
             ) : (
-              <form action={onSubmit} className="xp-form-panel">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onSubmit();
+                }}
+                className="xp-form-panel"
+              >
                 <div style={{ fontWeight: "bold", marginBottom: 6 }}>Sign in</div>
                 <label>Email</label>
-                <input className="xp-input" name="email" type="email" required autoFocus />
+                <input
+                  className="xp-input"
+                  type="email"
+                  required
+                  autoFocus
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
                 <label>Password</label>
-                <input className="xp-input" name="password" type="password" required />
+                <input
+                  className="xp-input"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
                 <label
                   style={{
                     display: "flex",

@@ -503,6 +503,88 @@ function SocialContent({ view }: { view: ViewMode }) {
   );
 }
 
+function ChangePassword({ email }: { email: string }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [ok, setOk] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function change() {
+    setOk(null);
+    setErr(null);
+    if (next.length < 6) {
+      setErr("New password must be at least 6 characters.");
+      return;
+    }
+    if (next !== confirm) {
+      setErr("New passwords don't match.");
+      return;
+    }
+    setBusy(true);
+    const supabase = createClient();
+    const { error: verifyErr } = await supabase.auth.signInWithPassword({
+      email,
+      password: current,
+    });
+    if (verifyErr) {
+      setBusy(false);
+      setErr("Current password is incorrect.");
+      return;
+    }
+    const { error: updateErr } = await supabase.auth.updateUser({ password: next });
+    setBusy(false);
+    if (updateErr) {
+      setErr(updateErr.message);
+      return;
+    }
+    setOk("Password changed.");
+    setCurrent("");
+    setNext("");
+    setConfirm("");
+  }
+
+  return (
+    <div>
+      <div style={{ fontWeight: "bold", marginBottom: 6 }}>Change password</div>
+      <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Current password</label>
+      <input
+        className="xp-input"
+        type="password"
+        value={current}
+        onChange={(e) => setCurrent(e.target.value)}
+        style={{ marginBottom: 8 }}
+      />
+      <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>New password</label>
+      <input
+        className="xp-input"
+        type="password"
+        value={next}
+        onChange={(e) => setNext(e.target.value)}
+        style={{ marginBottom: 8 }}
+      />
+      <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Confirm new password</label>
+      <input
+        className="xp-input"
+        type="password"
+        value={confirm}
+        onChange={(e) => setConfirm(e.target.value)}
+        style={{ marginBottom: 10 }}
+      />
+      <button
+        className="xp-btn xp-btn-primary"
+        onClick={change}
+        disabled={busy || !current || !next || !confirm}
+      >
+        {busy ? "Changing..." : "Change password"}
+      </button>
+      {ok && <div className="xp-ok" style={{ marginTop: 6 }}>{ok}</div>}
+      {err && <div className="xp-error" style={{ marginTop: 6 }}>{err}</div>}
+    </div>
+  );
+}
+
 function AccountContent({
   displayName,
   email,
@@ -609,6 +691,10 @@ function AccountContent({
 
       {msg && <div className="xp-ok">{msg}</div>}
       {err && <div className="xp-error">{err}</div>}
+
+      <hr style={{ border: 0, borderTop: "1px solid #c0c0c0", margin: "16px 0" }} />
+
+      <ChangePassword email={email} />
 
       <hr style={{ border: 0, borderTop: "1px solid #c0c0c0", margin: "16px 0" }} />
 
