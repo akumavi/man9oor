@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { logoutAction } from "../login/actions";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar, AVATAR_KEYS, AVATAR_LABELS, type AvatarKey } from "@/components/Avatar";
 
@@ -529,11 +528,22 @@ export default function Desktop({
           </div>
           <div className="footer">
             {signedIn ? (
-              <form action={logoutAction}>
-                <button className="xp-btn" type="submit">
-                  ⏻ Log Off
-                </button>
-              </form>
+              <button
+                className="xp-btn"
+                onClick={async () => {
+                  const supabase = createClient();
+                  await supabase.auth.signOut();
+                  try {
+                    localStorage.removeItem("man9oor_remembered");
+                  } catch {}
+                  setStartOpen(false);
+                  // Close any windows that require being signed in.
+                  setWins((cur) => cur.filter((w) => w.kind !== "account" && w.kind !== "admin"));
+                  router.refresh();
+                }}
+              >
+                ⏻ Log Off
+              </button>
             ) : (
               <button className="xp-btn" onClick={() => router.push("/login")}>
                 🔑 Sign in
