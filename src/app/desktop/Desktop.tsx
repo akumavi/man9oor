@@ -695,13 +695,15 @@ function SocialContent({ view }: { view: ViewMode }) {
   );
 }
 
+type MeetingStatus = "pending" | "confirmed" | "cancelled" | "declined" | "rescheduled";
+
 type Meeting = {
   id: string;
   user_id: string;
   starts_at: string;
   duration_minutes: number;
   topic: string | null;
-  status: "pending" | "confirmed" | "cancelled";
+  status: MeetingStatus;
   created_at: string;
 };
 
@@ -718,19 +720,16 @@ function fmtDateTime(iso: string) {
   });
 }
 
-function nextWeekdays(count: number): string[] {
+function nextDays(count: number = 7): string[] {
   const result: string[] = [];
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() + 1);
-  while (result.length < count) {
-    const dow = d.getDay();
-    if (dow !== 5 && dow !== 6) {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      result.push(`${y}-${m}-${day}`);
-    }
+  for (let i = 0; i < count; i++) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    result.push(`${y}-${m}-${day}`);
     d.setDate(d.getDate() + 1);
   }
   return result;
@@ -752,14 +751,18 @@ function MeetingContent({
 function UserMeetingBooking({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: () => void }) {
   const [mine, setMine] = useState<Meeting[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [date, setDate] = useState(nextWeekdays(1)[0] ?? "");
+  const dates = nextDays(7);
+  const [date, setDate] = useState(dates[0] ?? "");
   const [time, setTime] = useState(TIME_SLOTS[0]);
   const [topic, setTopic] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const dates = nextWeekdays(10);
+  // Reschedule state (per-meeting)
+  const [reschedId, setReschedId] = useState<string | null>(null);
+  const [reschedDate, setReschedDate] = useState(dates[0] ?? "");
+  const [reschedTime, setReschedTime] = useState(TIME_SLOTS[0]);
 
   async function load() {
     if (!signedIn) {
@@ -834,6 +837,39 @@ function UserMeetingBooking({ signedIn, onSignIn }: { signedIn: boolean; onSignI
     load();
   }
 
+  async function reschedule(id: string) {
+    const startsAt = new Date(`${reschedDate}T${reschedTime}:00`);
+    if (startsAt.getTime() < Date.now()) {
+      setErr("Pick a time in the future.");
+      return;
+    }
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("meetings")
+      .update({ starts_at: startsAt.toISOString(), status: "rescheduled" })
+      .eq("id", id);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setReschedId(null);
+    setMsg("Rescheduled — Mansoor will see your new time.");
+    load();
+  }
+
+  async function accept(id: string) {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("meetings")
+      .update({ status: "confirmed" })
+      .eq("id", id);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    load();
+  }
+
   if (!signedIn) {
     return (
       <div style={{ fontFamily: "Tahoma, sans-serif", fontSize: 13 }}>
@@ -861,7 +897,16 @@ function UserMeetingBooking({ signedIn, onSignIn }: { signedIn: boolean; onSignI
   }
 
   const upcoming = (mine ?? []).filter(
-    (m) => new Date(m.starts_at).getTime() > Date.now() - 2 * 60 * 60 * 1000 && m.status !== "cancelled",
+    (m) =>
+      new Date(m.starts_at).getTime() > Date.now() - 2 * 60 * 60 * 1000 &&
+      m.status !== "cancelled" &&
+      m.status !== "declined",
+  );
+  const past = (mine ?? []).filter(
+    (m) =>
+      new Date(m.starts_at).getTime() <= Date.now() - 2 * 60 * 60 * 1000 ||
+      m.status === "cancelled" ||
+      m.status === "declined",
   );
 
   return (
@@ -934,40 +979,156 @@ function UserMeetingBooking({ signedIn, onSignIn }: { signedIn: boolean; onSignI
               border: "1px solid #c0c0c0",
               background: "#fafafa",
               padding: 8,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 8,
             }}
           >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: "bold" }}>{fmtDateTime(m.starts_at)}</div>
-              {m.topic && (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#555",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                  title={m.topic}
-                >
-                  {m.topic}
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: "bold" }}>{fmtDateTime(m.starts_at)}</div>
+                {m.topic && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "#555",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={m.topic}
+                  >
+                    {m.topic}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, marginTop: 2 }}>
+                  <StatusBadge status={m.status} />
+                  {m.status === "rescheduled" && (
+                    <span style={{ fontSize: 11, color: "#664d00", marginLeft: 6 }}>
+                      — new time pending Mansoor&apos;s confirmation
+                    </span>
+                  )}
                 </div>
-              )}
-              <div style={{ fontSize: 11, marginTop: 2 }}>
-                <StatusBadge status={m.status} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {m.status === "rescheduled" && (
+                  <button
+                    className="xp-btn"
+                    style={{
+                      background: "linear-gradient(180deg,#5bd060,#2e8a33)",
+                      color: "white",
+                      borderColor: "#1a5e1e",
+                      fontSize: 11,
+                    }}
+                    onClick={() => accept(m.id)}
+                  >
+                    ✓ Accept new time
+                  </button>
+                )}
+                {reschedId !== m.id && (
+                  <button
+                    className="xp-btn"
+                    style={{ fontSize: 11 }}
+                    onClick={() => {
+                      setReschedId(m.id);
+                      setReschedDate(dates[0]);
+                      setReschedTime(TIME_SLOTS[0]);
+                    }}
+                  >
+                    ↻ Reschedule
+                  </button>
+                )}
+                <button className="xp-btn" style={{ fontSize: 11 }} onClick={() => cancel(m.id)}>
+                  Cancel
+                </button>
               </div>
             </div>
-            {m.status === "pending" && (
-              <button className="xp-btn" onClick={() => cancel(m.id)}>
-                Cancel
-              </button>
+            {reschedId === m.id && (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: 8,
+                  background: "#eef3fb",
+                  border: "1px solid #a8c0e0",
+                }}
+              >
+                <div style={{ fontWeight: "bold", marginBottom: 6, fontSize: 12 }}>
+                  Pick a new time:
+                </div>
+                <div
+                  style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto", gap: 6 }}
+                >
+                  <select
+                    className="xp-input"
+                    value={reschedDate}
+                    onChange={(e) => setReschedDate(e.target.value)}
+                  >
+                    {dates.map((d) => (
+                      <option key={d} value={d}>
+                        {new Date(d + "T12:00").toLocaleDateString([], {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="xp-input"
+                    value={reschedTime}
+                    onChange={(e) => setReschedTime(e.target.value)}
+                  >
+                    {TIME_SLOTS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="xp-btn xp-btn-primary"
+                    style={{ fontSize: 11 }}
+                    onClick={() => reschedule(m.id)}
+                  >
+                    Save
+                  </button>
+                  <button
+                    className="xp-btn"
+                    style={{ fontSize: 11 }}
+                    onClick={() => setReschedId(null)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         ))}
       </div>
+
+      {past.length > 0 && (
+        <>
+          <div style={{ fontWeight: "bold", marginTop: 14, marginBottom: 6, color: "#777" }}>
+            History
+          </div>
+          <div style={{ display: "grid", gap: 4 }}>
+            {past.map((m) => (
+              <div
+                key={m.id}
+                style={{
+                  border: "1px solid #e0e0e0",
+                  background: "#f5f5f5",
+                  padding: 6,
+                  fontSize: 12,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <div style={{ color: "#555" }}>{fmtDateTime(m.starts_at)}</div>
+                <StatusBadge status={m.status} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -990,6 +1151,10 @@ function AdminMeetingCalendar() {
   });
   const [selectedDay, setSelectedDay] = useState<string | null>(() => dayKey(new Date()));
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [reschedId, setReschedId] = useState<string | null>(null);
+  const reschedDates = nextDays(7);
+  const [reschedDate, setReschedDate] = useState(reschedDates[0] ?? "");
+  const [reschedTime, setReschedTime] = useState(TIME_SLOTS[0]);
 
   async function load() {
     setLoading(true);
@@ -1007,6 +1172,27 @@ function AdminMeetingCalendar() {
   useEffect(() => {
     load();
   }, []);
+
+  async function reschedule(id: string) {
+    const startsAt = new Date(`${reschedDate}T${reschedTime}:00`);
+    if (startsAt.getTime() < Date.now()) {
+      setErr("Pick a time in the future.");
+      return;
+    }
+    setBusyId(id);
+    const supabase = createClient();
+    const { error } = await supabase.rpc("admin_reschedule_meeting", {
+      meeting_id: id,
+      new_starts_at: startsAt.toISOString(),
+    });
+    setBusyId(null);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setReschedId(null);
+    load();
+  }
 
   const byDay: Record<string, AdminMeetingShape[]> = {};
   for (const m of meetings) {
@@ -1029,7 +1215,7 @@ function AdminMeetingCalendar() {
 
   const selectedMeetings = selectedDay ? (byDay[selectedDay] ?? []) : [];
 
-  async function updateStatus(id: string, status: "confirmed" | "cancelled") {
+  async function updateStatus(id: string, status: "confirmed" | "declined") {
     setBusyId(id);
     const supabase = createClient();
     const { error } = await supabase.rpc("admin_update_meeting_status", {
@@ -1182,83 +1368,177 @@ function AdminMeetingCalendar() {
             <div style={{ display: "grid", gap: 6 }}>
               {selectedMeetings
                 .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
-                .map((m) => (
-                  <div
-                    key={m.id}
-                    style={{
-                      border: "1px solid #c0c0c0",
-                      background: "#fafafa",
-                      padding: 10,
-                      display: "grid",
-                      gridTemplateColumns: "1fr auto",
-                      gap: 10,
-                      alignItems: "start",
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: "bold" }}>
-                        {new Date(m.starts_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}{" "}
-                        <span style={{ color: "#777", fontWeight: "normal" }}>
-                          ({m.duration_minutes} min)
-                        </span>
+                .map((m) => {
+                  const isDead = m.status === "cancelled" || m.status === "declined";
+                  return (
+                    <div
+                      key={m.id}
+                      style={{
+                        border: "1px solid #c0c0c0",
+                        background: "#fafafa",
+                        padding: 10,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr auto",
+                          gap: 10,
+                          alignItems: "start",
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: "bold" }}>
+                            {new Date(m.starts_at).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}{" "}
+                            <span style={{ color: "#777", fontWeight: "normal" }}>
+                              ({m.duration_minutes} min)
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 12, marginTop: 2 }}>
+                            <strong>{m.user_display_name}</strong>{" "}
+                            <span style={{ color: "#666" }}>&lt;{m.user_email}&gt;</span>
+                          </div>
+                          {m.topic && (
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "#444",
+                                marginTop: 4,
+                                fontStyle: "italic",
+                              }}
+                            >
+                              &ldquo;{m.topic}&rdquo;
+                            </div>
+                          )}
+                          <div style={{ marginTop: 4 }}>
+                            <StatusBadge status={m.status} />
+                            {m.status === "rescheduled" && (
+                              <span
+                                style={{ fontSize: 11, color: "#664d00", marginLeft: 6 }}
+                              >
+                                — they changed the time
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {(m.status === "pending" || m.status === "rescheduled") && (
+                            <button
+                              className="xp-btn"
+                              style={{
+                                background: "linear-gradient(180deg,#5bd060,#2e8a33)",
+                                color: "white",
+                                borderColor: "#1a5e1e",
+                                fontSize: 11,
+                              }}
+                              disabled={busyId === m.id}
+                              onClick={() => updateStatus(m.id, "confirmed")}
+                            >
+                              ✓ Confirm
+                            </button>
+                          )}
+                          {!isDead && reschedId !== m.id && (
+                            <button
+                              className="xp-btn"
+                              style={{ fontSize: 11 }}
+                              disabled={busyId === m.id}
+                              onClick={() => {
+                                setReschedId(m.id);
+                                setReschedDate(reschedDates[0]);
+                                setReschedTime(TIME_SLOTS[0]);
+                              }}
+                            >
+                              ↻ Reschedule
+                            </button>
+                          )}
+                          {!isDead && (
+                            <button
+                              className="xp-btn"
+                              style={{
+                                background: "linear-gradient(180deg,#ff8080,#c62828)",
+                                color: "white",
+                                borderColor: "#8b0000",
+                                fontSize: 11,
+                              }}
+                              disabled={busyId === m.id}
+                              onClick={() => updateStatus(m.id, "declined")}
+                            >
+                              ✕ Decline
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 12, marginTop: 2 }}>
-                        <strong>{m.user_display_name}</strong>{" "}
-                        <span style={{ color: "#666" }}>&lt;{m.user_email}&gt;</span>
-                      </div>
-                      {m.topic && (
+                      {reschedId === m.id && (
                         <div
                           style={{
-                            fontSize: 12,
-                            color: "#444",
-                            marginTop: 4,
-                            fontStyle: "italic",
+                            marginTop: 8,
+                            padding: 8,
+                            background: "#eef3fb",
+                            border: "1px solid #a8c0e0",
                           }}
                         >
-                          &ldquo;{m.topic}&rdquo;
+                          <div
+                            style={{ fontWeight: "bold", marginBottom: 6, fontSize: 12 }}
+                          >
+                            New time:
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr 1fr auto auto",
+                              gap: 6,
+                            }}
+                          >
+                            <select
+                              className="xp-input"
+                              value={reschedDate}
+                              onChange={(e) => setReschedDate(e.target.value)}
+                            >
+                              {reschedDates.map((d) => (
+                                <option key={d} value={d}>
+                                  {new Date(d + "T12:00").toLocaleDateString([], {
+                                    weekday: "short",
+                                    month: "short",
+                                    day: "numeric",
+                                  })}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              className="xp-input"
+                              value={reschedTime}
+                              onChange={(e) => setReschedTime(e.target.value)}
+                            >
+                              {TIME_SLOTS.map((t) => (
+                                <option key={t} value={t}>
+                                  {t}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="xp-btn xp-btn-primary"
+                              style={{ fontSize: 11 }}
+                              onClick={() => reschedule(m.id)}
+                              disabled={busyId === m.id}
+                            >
+                              Save
+                            </button>
+                            <button
+                              className="xp-btn"
+                              style={{ fontSize: 11 }}
+                              onClick={() => setReschedId(null)}
+                            >
+                              ✕
+                            </button>
+                          </div>
                         </div>
                       )}
-                      <div style={{ marginTop: 4 }}>
-                        <StatusBadge status={m.status} />
-                      </div>
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      {m.status === "pending" && (
-                        <button
-                          className="xp-btn"
-                          style={{
-                            background: "linear-gradient(180deg,#5bd060,#2e8a33)",
-                            color: "white",
-                            borderColor: "#1a5e1e",
-                            fontSize: 11,
-                          }}
-                          disabled={busyId === m.id}
-                          onClick={() => updateStatus(m.id, "confirmed")}
-                        >
-                          ✓ Confirm
-                        </button>
-                      )}
-                      {m.status !== "cancelled" && (
-                        <button
-                          className="xp-btn"
-                          style={{
-                            background: "linear-gradient(180deg,#ff8080,#c62828)",
-                            color: "white",
-                            borderColor: "#8b0000",
-                            fontSize: 11,
-                          }}
-                          disabled={busyId === m.id}
-                          onClick={() => updateStatus(m.id, "cancelled")}
-                        >
-                          ✕ Decline
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           )}
         </div>
@@ -1267,11 +1547,13 @@ function AdminMeetingCalendar() {
   );
 }
 
-function StatusBadge({ status }: { status: Meeting["status"] }) {
-  const styles: Record<Meeting["status"], React.CSSProperties> = {
+function StatusBadge({ status }: { status: MeetingStatus }) {
+  const styles: Record<MeetingStatus, React.CSSProperties> = {
     pending: { background: "#fff3cd", color: "#856404", border: "1px solid #ffeaa7" },
     confirmed: { background: "#d4edda", color: "#155724", border: "1px solid #c3e6cb" },
     cancelled: { background: "#f8d7da", color: "#721c24", border: "1px solid #f5c6cb" },
+    declined: { background: "#f8d7da", color: "#721c24", border: "1px solid #f5c6cb" },
+    rescheduled: { background: "#cfe2ff", color: "#084298", border: "1px solid #9ec5fe" },
   };
   return (
     <span
@@ -1337,7 +1619,7 @@ function AdminContent({ currentEmail }: { currentEmail: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  async function updateMeetingStatus(id: string, status: "confirmed" | "cancelled") {
+  async function updateMeetingStatus(id: string, status: "confirmed" | "declined") {
     setBusyId(id);
     const supabase = createClient();
     const { error } = await supabase.rpc("admin_update_meeting_status", {
@@ -1478,7 +1760,7 @@ function AdminContent({ currentEmail }: { currentEmail: string }) {
                 </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                {m.status === "pending" && (
+                {(m.status === "pending" || m.status === "rescheduled") && (
                   <button
                     className="xp-btn"
                     style={{
@@ -1493,7 +1775,7 @@ function AdminContent({ currentEmail }: { currentEmail: string }) {
                     ✓ Confirm
                   </button>
                 )}
-                {m.status !== "cancelled" && (
+                {m.status !== "cancelled" && m.status !== "declined" && (
                   <button
                     className="xp-btn"
                     style={{
@@ -1503,7 +1785,7 @@ function AdminContent({ currentEmail }: { currentEmail: string }) {
                       fontSize: 11,
                     }}
                     disabled={busyId === m.id}
-                    onClick={() => updateMeetingStatus(m.id, "cancelled")}
+                    onClick={() => updateMeetingStatus(m.id, "declined")}
                   >
                     ✕ Decline
                   </button>
