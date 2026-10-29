@@ -463,6 +463,7 @@ export default function Desktop({
               {w.kind === "meeting" && (
                 <MeetingContent
                   signedIn={signedIn}
+                  isAdmin={isAdmin}
                   onSignIn={() => router.push("/login")}
                 />
               )}
@@ -735,7 +736,20 @@ function nextWeekdays(count: number): string[] {
   return result;
 }
 
-function MeetingContent({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: () => void }) {
+function MeetingContent({
+  signedIn,
+  isAdmin,
+  onSignIn,
+}: {
+  signedIn: boolean;
+  isAdmin: boolean;
+  onSignIn: () => void;
+}) {
+  if (isAdmin) return <AdminMeetingCalendar />;
+  return <UserMeetingBooking signedIn={signedIn} onSignIn={onSignIn} />;
+}
+
+function UserMeetingBooking({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: () => void }) {
   const [mine, setMine] = useState<Meeting[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [date, setDate] = useState(nextWeekdays(1)[0] ?? "");
@@ -954,6 +968,301 @@ function MeetingContent({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function dayKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+type AdminMeetingShape = Meeting & { user_email: string; user_display_name: string };
+
+function AdminMeetingCalendar() {
+  const [meetings, setMeetings] = useState<AdminMeetingShape[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [monthDate, setMonthDate] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [selectedDay, setSelectedDay] = useState<string | null>(() => dayKey(new Date()));
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("admin_list_meetings");
+    setLoading(false);
+    if (error) {
+      setErr(error.message + " — did you run the meetings SQL in Supabase?");
+      return;
+    }
+    setMeetings((data ?? []) as AdminMeetingShape[]);
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const byDay: Record<string, AdminMeetingShape[]> = {};
+  for (const m of meetings) {
+    const k = dayKey(new Date(m.starts_at));
+    (byDay[k] ??= []).push(m);
+  }
+
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startDow = firstDay.getDay();
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const todayKey = dayKey(new Date());
+  const monthLabel = monthDate.toLocaleDateString([], { month: "long", year: "numeric" });
+
+  const selectedMeetings = selectedDay ? (byDay[selectedDay] ?? []) : [];
+
+  async function updateStatus(id: string, status: "confirmed" | "cancelled") {
+    setBusyId(id);
+    const supabase = createClient();
+    const { error } = await supabase.rpc("admin_update_meeting_status", {
+      meeting_id: id,
+      new_status: status,
+    });
+    setBusyId(null);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setMeetings((cur) => cur.map((m) => (m.id === id ? { ...m, status } : m)));
+  }
+
+  function prevMonth() {
+    const d = new Date(monthDate);
+    d.setMonth(d.getMonth() - 1);
+    setMonthDate(d);
+  }
+  function nextMonth() {
+    const d = new Date(monthDate);
+    d.setMonth(d.getMonth() + 1);
+    setMonthDate(d);
+  }
+
+  return (
+    <div style={{ fontFamily: "Tahoma, sans-serif", fontSize: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+        }}
+      >
+        <button className="xp-btn" onClick={prevMonth}>
+          ← Prev
+        </button>
+        <div style={{ fontWeight: "bold", fontSize: 15 }}>{monthLabel}</div>
+        <button className="xp-btn" onClick={nextMonth}>
+          Next →
+        </button>
+      </div>
+
+      {err && <div className="xp-error" style={{ marginBottom: 8 }}>{err}</div>}
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(7, 1fr)",
+          gap: 2,
+          border: "1px solid #a0a0a0",
+          background: "#a0a0a0",
+          marginBottom: 10,
+        }}
+      >
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+          <div
+            key={d}
+            style={{
+              background: "linear-gradient(180deg, #f0f0f0, #d6d6d6)",
+              padding: "3px 4px",
+              textAlign: "center",
+              fontSize: 11,
+              fontWeight: "bold",
+            }}
+          >
+            {d}
+          </div>
+        ))}
+        {cells.map((d, i) => {
+          if (d === null) return <div key={i} style={{ background: "#eee", minHeight: 56 }} />;
+          const k = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          const dayMeetings = byDay[k] ?? [];
+          const pending = dayMeetings.filter((m) => m.status === "pending").length;
+          const confirmed = dayMeetings.filter((m) => m.status === "confirmed").length;
+          const isToday = k === todayKey;
+          const isSelected = k === selectedDay;
+          return (
+            <div
+              key={i}
+              onClick={() => setSelectedDay(k)}
+              style={{
+                background: isSelected ? "#cfe3ff" : "white",
+                padding: "3px 4px",
+                minHeight: 56,
+                cursor: "pointer",
+                border: isToday ? "2px solid #0058e6" : "none",
+                position: "relative",
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+              }}
+            >
+              <div style={{ fontWeight: isToday ? "bold" : "normal", fontSize: 12 }}>{d}</div>
+              <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+                {confirmed > 0 && (
+                  <span
+                    style={{
+                      background: "#28a745",
+                      color: "white",
+                      fontSize: 10,
+                      padding: "0 4px",
+                      borderRadius: 3,
+                      fontWeight: "bold",
+                    }}
+                    title={`${confirmed} confirmed`}
+                  >
+                    ✓{confirmed}
+                  </span>
+                )}
+                {pending > 0 && (
+                  <span
+                    style={{
+                      background: "#ffc107",
+                      color: "#664d00",
+                      fontSize: 10,
+                      padding: "0 4px",
+                      borderRadius: 3,
+                      fontWeight: "bold",
+                    }}
+                    title={`${pending} pending`}
+                  >
+                    ⏳{pending}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {loading && <div style={{ color: "#555" }}>Loading…</div>}
+
+      {!loading && selectedDay && (
+        <div>
+          <div style={{ fontWeight: "bold", marginBottom: 6 }}>
+            {new Date(selectedDay + "T12:00").toLocaleDateString([], {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })}
+            {" · "}
+            {selectedMeetings.length} meeting{selectedMeetings.length === 1 ? "" : "s"}
+          </div>
+          {selectedMeetings.length === 0 ? (
+            <div style={{ color: "#777", fontSize: 12 }}>Nothing scheduled.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 6 }}>
+              {selectedMeetings
+                .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+                .map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      border: "1px solid #c0c0c0",
+                      background: "#fafafa",
+                      padding: 10,
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto",
+                      gap: 10,
+                      alignItems: "start",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: "bold" }}>
+                        {new Date(m.starts_at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}{" "}
+                        <span style={{ color: "#777", fontWeight: "normal" }}>
+                          ({m.duration_minutes} min)
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, marginTop: 2 }}>
+                        <strong>{m.user_display_name}</strong>{" "}
+                        <span style={{ color: "#666" }}>&lt;{m.user_email}&gt;</span>
+                      </div>
+                      {m.topic && (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#444",
+                            marginTop: 4,
+                            fontStyle: "italic",
+                          }}
+                        >
+                          &ldquo;{m.topic}&rdquo;
+                        </div>
+                      )}
+                      <div style={{ marginTop: 4 }}>
+                        <StatusBadge status={m.status} />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {m.status === "pending" && (
+                        <button
+                          className="xp-btn"
+                          style={{
+                            background: "linear-gradient(180deg,#5bd060,#2e8a33)",
+                            color: "white",
+                            borderColor: "#1a5e1e",
+                            fontSize: 11,
+                          }}
+                          disabled={busyId === m.id}
+                          onClick={() => updateStatus(m.id, "confirmed")}
+                        >
+                          ✓ Confirm
+                        </button>
+                      )}
+                      {m.status !== "cancelled" && (
+                        <button
+                          className="xp-btn"
+                          style={{
+                            background: "linear-gradient(180deg,#ff8080,#c62828)",
+                            color: "white",
+                            borderColor: "#8b0000",
+                            fontSize: 11,
+                          }}
+                          disabled={busyId === m.id}
+                          onClick={() => updateStatus(m.id, "cancelled")}
+                        >
+                          ✕ Decline
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
